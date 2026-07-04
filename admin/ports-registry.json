@@ -7,18 +7,20 @@
     {
       "hostname": "pi-1",
       "zt_ip": "10.147.17.149",
-      "zt_node_id": "",
+      "zt_node_id": "92f3f49437",
       "socks_port": 18721,
       "http_port": 58920,
-      "status": "active"
+      "status": "active",
+      "notes": "legacy layout: ~/simple_socks_proxy_v4.py, system python"
     },
     {
       "hostname": "pi-2",
       "zt_ip": "10.147.17.68",
-      "zt_node_id": "",
+      "zt_node_id": "4da4adb76f",
       "socks_port": 17812,
       "http_port": 59802,
-      "status": "active"
+      "status": "active",
+      "notes": "standard layout: ~/proxy/venv, improved_proxy.service"
     }
   ]
 }

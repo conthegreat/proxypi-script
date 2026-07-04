@@ -37,7 +37,7 @@ load_config() {
   fi
   # shellcheck disable=SC1090
   source "${CONFIG_FILE}"
-  [[ -n "${ZEROTIER_NETWORK_ID:-}" && "${ZEROTIER_NETWORK_ID}" != "REPLACE_ME" ]] \
+  [[ -n "${ZEROTIER_NETWORK_ID:-}" ]] \
     || die "ZEROTIER_NETWORK_ID is not configured in ${CONFIG_FILE}. Ask the network operator."
 }
 
@@ -49,7 +49,7 @@ install_apt_packages() {
   log "Installing system packages"
   sudo apt-get update -qq
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    python3 python3-venv python3-pip curl ca-certificates
+    python3 python3-venv python3-pip curl ca-certificates iproute2
 }
 
 install_zerotier() {

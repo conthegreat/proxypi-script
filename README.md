@@ -27,11 +27,15 @@ curl -fsSL https://raw.githubusercontent.com/conthegreat/proxypi-script/main/ins
 
 ## For network operators (you)
 
-### Before publishing
+### Network config (already set from pi audit)
 
-1. Edit `install/config.defaults` and set your real `ZEROTIER_NETWORK_ID`
-2. Keep `RADIUS_SECRET` out of the repo — pass it only in the activation command
-3. Commit and push to GitHub
+| Setting | Value |
+|---------|-------|
+| ZeroTier network | `664bb06760e47198` (ProxyPi) |
+| RADIUS server | `10.147.17.33` |
+| Log directory | `/var/log/proxy` |
+
+Keep `RADIUS_SECRET` out of the repo — pass it only in the activation command.
 
 ### When a new Pi requests to join
 
@@ -61,12 +65,26 @@ Ports are tracked in `admin/ports-registry.json`. New nodes get non-conflicting 
 - SOCKS: `18000–18999`
 - HTTP: `58000–59999` (offset +40000 from SOCKS where possible)
 
-Existing nodes (pre-registry):
+Existing nodes:
 
-| Host | ZT IP | SOCKS | HTTP |
-|------|-------|-------|------|
-| pi-1 | 10.147.17.149 | 18721 | 58920 |
-| pi-2 | 10.147.17.68 | 17812 | 59802 |
+| Host | ZT Node ID | ZT IP | SOCKS | HTTP |
+|------|------------|-------|-------|------|
+| pi-1 | `92f3f49437` | 10.147.17.149 | 18721 | 58920 |
+| pi-2 | `4da4adb76f` | 10.147.17.68 | 17812 | 59802 |
+
+Next new node: **SOCKS 18100 / HTTP 58100**
+
+## Audited Pi requirements
+
+Confirmed by SSH on your live Pis:
+
+- **OS:** Debian 12/13 (Raspberry Pi OS)
+- **ZeroTier:** `curl install.zerotier.com | bash`, join network `664bb06760e47198`
+- **Python:** `python3`, `python3-venv`, `python3-pip`
+- **Pip packages:** `pyrad>=2.4` (installs `netaddr`, `six`)
+- **Proxy:** `~/proxy/proxyscript.py` in a venv, `improved_proxy.service`
+- **RADIUS dictionary:** auto-created beside the script (no `/etc/freeradius` fallback)
+- **Logs:** `/var/log/proxy/` (CSV + `proxy.log`)
 
 ## Files on the Pi after install
 
