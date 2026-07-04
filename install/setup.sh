@@ -111,7 +111,8 @@ Type=simple
 User=${run_user}
 Group=${run_user}
 WorkingDirectory=${home_dir}/proxy
-EnvironmentFile=-${home_dir}/proxy/proxy.env
+EnvironmentFile=${home_dir}/proxy/proxy.env
+Environment=PYTHONUNBUFFERED=1
 ExecStart=${home_dir}/proxy/venv/bin/python3 ${home_dir}/proxy/proxyscript.py
 Restart=on-failure
 RestartSec=5

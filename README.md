@@ -65,7 +65,7 @@ Ports are tracked in `admin/ports-registry.json`. New nodes get non-conflicting 
 - SOCKS: `18000–18999`
 - HTTP: `58000–59999` (offset +40000 from SOCKS where possible)
 
-Existing nodes:
+Live port list: **[admin/PORTS.md](admin/PORTS.md)** (synced with `admin/ports-registry.json`)
 
 | Host | ZT Node ID | ZT IP | SOCKS | HTTP |
 |------|------------|-------|-------|------|
@@ -73,6 +73,8 @@ Existing nodes:
 | pi-2 | `4da4adb76f` | 10.147.17.68 | 17812 | 59802 |
 
 Next new node: **SOCKS 18100 / HTTP 58100**
+
+Both pi-1 and pi-2 migrated to `~/proxy` + `proxy.env` + `improved_proxy.service`.
 
 ## Audited Pi requirements
 

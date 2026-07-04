@@ -1,7 +1,15 @@
 {
+  "network": {
+    "zerotier_id": "664bb06760e47198",
+    "name": "ProxyPi"
+  },
   "ranges": {
     "socks": { "min": 18000, "max": 18999 },
     "http": { "min": 58000, "max": 59999 }
+  },
+  "next_available": {
+    "socks_port": 18100,
+    "http_port": 58100
   },
   "nodes": [
     {
@@ -10,8 +18,10 @@
       "zt_node_id": "92f3f49437",
       "socks_port": 18721,
       "http_port": 58920,
+      "service": "improved_proxy.service",
+      "layout": "~/proxy/venv + proxyscript.py + proxy.env",
       "status": "active",
-      "notes": "legacy layout: ~/simple_socks_proxy_v4.py, system python"
+      "migrated": "2026-07-04"
     },
     {
       "hostname": "pi-2",
@@ -19,8 +29,10 @@
       "zt_node_id": "4da4adb76f",
       "socks_port": 17812,
       "http_port": 59802,
+      "service": "improved_proxy.service",
+      "layout": "~/proxy/venv + proxyscript.py + proxy.env",
       "status": "active",
-      "notes": "standard layout: ~/proxy/venv, improved_proxy.service"
+      "migrated": "2026-07-04"
     }
   ]
 }

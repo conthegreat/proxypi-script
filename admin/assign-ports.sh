@@ -74,6 +74,28 @@ node = {
     "status": "assigned",
 }
 nodes.append(node)
+used_socks.add(socks_port)
+used_http.add(http_port)
+next_socks = None
+next_http = None
+socks_start = max(ranges["socks"]["min"], 18100)
+http_start = max(ranges["http"]["min"], 58100)
+for candidate in range(socks_start, ranges["socks"]["max"] + 1):
+    if candidate in used_socks:
+        continue
+    for http_candidate in range(http_start, ranges["http"]["max"] + 1):
+        if http_candidate in used_http:
+            continue
+        next_socks = candidate
+        next_http = http_candidate
+        break
+    if next_socks is not None:
+        break
+if next_socks is not None:
+    data["next_available"] = {
+        "socks_port": next_socks,
+        "http_port": next_http,
+    }
 registry_path.write_text(json.dumps(data, indent=2) + "\n")
 print(json.dumps(node, indent=2))
 PY

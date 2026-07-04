@@ -27,4 +27,11 @@ for node in nodes:
         f"{node.get('status',''):<10} "
         f"{node.get('zt_node_id','')}"
     )
+next_avail = data.get("next_available")
+if next_avail:
+    print("-" * 72)
+    print(
+        f"Next available:  SOCKS {next_avail.get('socks_port','')}  "
+        f"HTTP {next_avail.get('http_port','')}"
+    )
 PY

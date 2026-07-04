@@ -1,0 +1,18 @@
+[Unit]
+Description=Improved Proxy Service
+After=network-online.target zerotier-one.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__PROXY_USER__
+Group=__PROXY_GROUP__
+WorkingDirectory=__PROXY_HOME__/proxy
+EnvironmentFile=__PROXY_HOME__/proxy/proxy.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__PROXY_HOME__/proxy/venv/bin/python3 __PROXY_HOME__/proxy/proxyscript.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
