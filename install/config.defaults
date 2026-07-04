@@ -1,0 +1,6 @@
+# Network Contractor proxy network defaults.
+# Set ZEROTIER_NETWORK_ID before publishing (find it in ZeroTier Central).
+ZEROTIER_NETWORK_ID=REPLACE_ME
+RADIUS_SERVER=10.147.17.33
+PROXY_LOG_DIR=/var/log/proxy
+REPO_RAW=https://raw.githubusercontent.com/conthegreat/proxypi-script/main

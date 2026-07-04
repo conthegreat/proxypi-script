@@ -1,0 +1,24 @@
+{
+  "ranges": {
+    "socks": { "min": 18000, "max": 18999 },
+    "http": { "min": 58000, "max": 59999 }
+  },
+  "nodes": [
+    {
+      "hostname": "pi-1",
+      "zt_ip": "10.147.17.149",
+      "zt_node_id": "",
+      "socks_port": 18721,
+      "http_port": 58920,
+      "status": "active"
+    },
+    {
+      "hostname": "pi-2",
+      "zt_ip": "10.147.17.68",
+      "zt_node_id": "",
+      "socks_port": 17812,
+      "http_port": 59802,
+      "status": "active"
+    }
+  ]
+}
