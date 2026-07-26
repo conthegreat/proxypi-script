@@ -166,52 +166,126 @@ EOF
 }
 
 print_next_steps() {
-  local zt_node_id hostname
+  local zt_node_id hostname zt_ip
   # shellcheck disable=SC1090
   source "${NODE_INFO}"
   hostname="${HOSTNAME}"
-  zt_node_id="${ZT_NODE_ID}"
+  zt_node_id="${ZT_NODE_ID:-}"
+  zt_ip="${ZT_IP:-pending}"
+
+  local join_url="https://proxypi.co.uk/join"
+  local id_ok=1
+  if [[ -z "${zt_node_id}" || ${#zt_node_id} -lt 10 ]]; then
+    id_ok=0
+    zt_node_id="(not detected — see below)"
+  fi
 
   cat <<EOF
 
 ================================================================================
- Proxy Pi setup complete — awaiting network approval
+  SUCCESS — your Pi software is installed
 ================================================================================
 
-Hostname:        ${hostname}
-ZeroTier Node:   ${zt_node_id}
-Install dir:     ${INSTALL_DIR}
-Service:         ${SERVICE_NAME} (installed, not started)
+  Nothing is live yet. The proxy service is installed but NOT started.
+  You still need to register this device on the website (about 2 minutes).
 
-NEXT STEPS
-----------
-1. Send the operator your ZeroTier Node ID:
+--------------------------------------------------------------------------------
+  YOUR DETAILS (copy these carefully)
+--------------------------------------------------------------------------------
+
+  Pi hostname:          ${hostname}
+  ZeroTier Node ID:     ${zt_node_id}
+  Network status:       joined (waiting for ProxyPi to approve this device)
+  Private IP (if any):  ${zt_ip}
+
+EOF
+
+  if [[ "${id_ok}" -eq 1 ]]; then
+    cat <<EOF
+  >>> THIS IS THE CODE YOU NEED ON THE WEBSITE <<<
+
       ${zt_node_id}
 
-2. Wait for ZeroTier approval on the network.
+  Copy the line above (10 letters/numbers). You will paste it into the form.
 
-3. After approval, the operator will send a one-time activation command
-   (token-based — no RADIUS secret in the email). It will look like:
+EOF
+  else
+    cat <<EOF
+  >>> COULD NOT AUTO-DETECT YOUR NODE ID — run this command: <<<
 
-      curl -fsSL ${REPO_RAW}/install/activate.sh | \\
-        ACTIVATION_TOKEN='...' ACTIVATION_API_URL='https://proxypi.co.uk' bash
-
-4. If ZeroTier Node above is blank, run:
       sudo zerotier-cli info
-      # third field is the 10-character node ID
 
-5. Check status:
+  Example output:
+      200 info 4b8ecdb32a 1.16.2 ONLINE
+               ^^^^^^^^^^
+               copy this 10-character code
+
+EOF
+  fi
+
+  cat <<EOF
+--------------------------------------------------------------------------------
+  WHAT TO DO NEXT (in order)
+--------------------------------------------------------------------------------
+
+  STEP 1 — Open the join page on a phone or computer browser
+      ${join_url}
+
+  STEP 2 — Fill in the form
+      • Hostname:        ${hostname}   (or the name ProxyPi gave you)
+      • Your email:      the email you use with ProxyPi
+      • ZeroTier Node ID: ${zt_node_id}
+      • Complete the security checkbox / CAPTCHA
+      • Submit
+
+  STEP 3 — Wait for ProxyPi
+      We approve your device on the private network (often same day).
+      You will then receive a one-time activation command by email/chat.
+      It looks like this (do NOT invent values — only run what we send):
+
+      curl -fsSL …/install/activate.sh | \\
+        ACTIVATION_TOKEN='…' ACTIVATION_API_URL='https://proxypi.co.uk' bash
+
+  STEP 4 — On this Pi, paste and run that activation command
+      After it succeeds you should see:  [+] Proxy is running
+
+  STEP 5 — Optional checks
       systemctl status ${SERVICE_NAME}
       tail -f ${PROXY_LOG_DIR:-/var/log/proxy}/proxy.log
 
-Node info saved to: ${NODE_INFO}
+--------------------------------------------------------------------------------
+  NEED THE NODE ID AGAIN LATER?
+--------------------------------------------------------------------------------
+
+      sudo zerotier-cli info
+      cat ${NODE_INFO}
+
+  Help / join page:  ${join_url}
+  Support:           support@proxypi.co.uk
+
 ================================================================================
+EOF
+}
+
+print_banner() {
+  cat <<EOF
+
+================================================================================
+  ProxyPi node installer
+================================================================================
+  This sets up your Raspberry Pi to join the ProxyPi residential network.
+  It installs private networking (ZeroTier) and the proxy software.
+  It does NOT start serving traffic until ProxyPi sends you an activation
+  command after you register at https://proxypi.co.uk/join
+================================================================================
+
 EOF
 }
 
 main() {
   require_linux
   mkdir -p "${INSTALL_DIR}"
+  print_banner
 
   if [[ -f "${CONFIG_FILE}" ]]; then
     # shellcheck disable=SC1090
