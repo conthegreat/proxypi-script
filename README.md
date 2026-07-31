@@ -25,6 +25,23 @@ curl -fsSL https://raw.githubusercontent.com/conthegreat/proxypi-script/main/ins
   SOCKS_PORT=18100 HTTP_PORT=58100 RADIUS_SECRET='your-secret' bash
 ```
 
+### Leave the network (operator self-service)
+
+Stops the proxy, removes local secrets, and leaves the ZeroTier network.
+**Does not** remove public HAProxy/RADIUS/DNS on the servers — email ops after running this.
+
+```bash
+# Interactive (asks you to type YES)
+curl -fsSL https://raw.githubusercontent.com/conthegreat/proxypi-script/main/leave.sh | bash
+
+# Non-interactive
+curl -fsSL https://raw.githubusercontent.com/conthegreat/proxypi-script/main/leave.sh | CONFIRM=yes bash
+
+# Full local wipe (delete ~/proxy + uninstall ZeroTier)
+curl -fsSL https://raw.githubusercontent.com/conthegreat/proxypi-script/main/leave.sh | \
+  CONFIRM=yes LEAVE_PURGE=1 LEAVE_REMOVE_ZT=1 bash
+```
+
 ## For network operators (you)
 
 ### Network config (already set from pi audit)
