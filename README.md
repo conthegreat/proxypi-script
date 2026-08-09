@@ -121,6 +121,21 @@ Confirmed by SSH on your live Pis:
 - `proxy.env` is chmod 600 and only readable by the Pi user
 - ZeroTier network ID is public (required to join) — this is normal
 - Approve new devices manually in ZeroTier Central before activation
+- **Destination filter:** `proxyscript.py` refuses SOCKS/HTTP CONNECT to private LAN,
+  loopback, link-local, CGNAT, and ZeroTier-style `10.0.0.0/8` ranges so customers
+  cannot use the proxy to reach the host’s home network or other ZT nodes.
+  Optional extra CIDRs: `PROXY_BLOCKED_NETWORKS=cidr,cidr` in `proxy.env`.
+
+### Update proxy code on a live Pi (ops)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/conthegreat/proxypi-script/main/proxyscript.py \
+  -o ~/proxy/proxyscript.py
+sudo systemctl restart improved_proxy.service
+sudo systemctl status improved_proxy.service --no-pager
+```
+
+Pis do **not** auto-pull from GitHub; only this file is replaced + service restart.
 
 ## Manual service control
 

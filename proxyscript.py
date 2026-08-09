@@ -39,6 +39,7 @@ import pyrad.packet
 from pyrad.client import Client
 from pyrad.dictionary import Dictionary
 import base64
+import ipaddress
 from urllib.parse import urlparse
 import os
 import uuid
@@ -55,6 +56,28 @@ CLIENT_DISCONNECT_ERRORS = (
     BrokenPipeError,
     EOFError,
     ConnectionAbortedError,
+)
+
+# Destination networks customers must not reach via the proxy (LAN / ZT / loopback).
+# 10.0.0.0/8 covers ZeroTier 10.147.x.x as well as home LANs using 10/8.
+# Extra nets via PROXY_BLOCKED_NETWORKS=cidr,cidr (optional).
+_DEFAULT_BLOCKED_NETWORKS = (
+    "0.0.0.0/8",
+    "10.0.0.0/8",
+    "100.64.0.0/10",       # CGNAT
+    "127.0.0.0/8",
+    "169.254.0.0/16",
+    "172.16.0.0/12",
+    "192.0.0.0/24",
+    "192.168.0.0/16",
+    "198.18.0.0/15",
+    "224.0.0.0/4",
+    "240.0.0.0/4",
+    "::/128",
+    "::1/128",
+    "fc00::/7",
+    "fe80::/10",
+    "ff00::/8",
 )
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -163,7 +186,70 @@ class ImprovedProxy:
         self.usage_log = os.path.join(log_dir, f"user_usage_{hostname}.csv")
         self.connection_log = os.path.join(log_dir, f"connection_log_{hostname}.csv")
         self.user_usage = {}
+        self._blocked_networks = self._load_blocked_networks()
         self.load_existing_usage()
+        logger.info(
+            f"[*] Destination filter: blocking private/LAN/ZT ranges "
+            f"({len(self._blocked_networks)} networks)"
+        )
+
+    def _load_blocked_networks(self):
+        nets = []
+        for cidr in _DEFAULT_BLOCKED_NETWORKS:
+            try:
+                nets.append(ipaddress.ip_network(cidr, strict=False))
+            except ValueError:
+                logger.warning(f"[-] Invalid default blocked network {cidr}")
+        extra = os.environ.get("PROXY_BLOCKED_NETWORKS", "").strip()
+        if extra:
+            for part in extra.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                try:
+                    nets.append(ipaddress.ip_network(part, strict=False))
+                except ValueError:
+                    logger.warning(f"[-] Invalid PROXY_BLOCKED_NETWORKS entry: {part}")
+        return nets
+
+    def _is_blocked_ip(self, ip_str: str) -> bool:
+        """Return True if customers must not CONNECT to this IP via the proxy."""
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return True
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            return True
+        for net in self._blocked_networks:
+            if ip in net:
+                return True
+        return False
+
+    async def _resolve_public_host(self, hostname: str) -> str:
+        """Resolve hostname and return first non-blocked address, or raise PermissionError."""
+        try:
+            ipaddress.ip_address(hostname)
+            if self._is_blocked_ip(hostname):
+                raise PermissionError(f"blocked destination {hostname}")
+            return hostname
+        except ValueError:
+            pass
+
+        infos = await asyncio.get_running_loop().getaddrinfo(
+            hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
+        )
+        for info in infos:
+            candidate = info[4][0]
+            if not self._is_blocked_ip(candidate):
+                return candidate
+        raise PermissionError(f"all resolved addresses blocked for {hostname}")
 
     def _detect_nas_ip(self):
         try:
@@ -409,7 +495,7 @@ class ImprovedProxy:
                 elif address_type == 3:
                     domain_length = (await self._read_exact(reader, 1, "domain length"))[0]
                     domain = (await self._read_exact(reader, domain_length, "domain")).decode('utf-8', errors='strict')
-                    address = await self._resolve_host(domain)
+                    address = await self._resolve_public_host(domain)
                 elif address_type == 4:
                     address = socket.inet_ntop(socket.AF_INET6, await self._read_exact(reader, 16, "ipv6 address"))
                 else:
@@ -418,10 +504,32 @@ class ImprovedProxy:
                     await writer.drain()
                     return
                 port = int.from_bytes(await self._read_exact(reader, 2, "port"), 'big')
+            except PermissionError as e:
+                logger.warning(f"[-] SOCKS blocked destination from {source_ip}: {e}")
+                try:
+                    writer.write(self._socks_failure_reply(2))  # connection not allowed by ruleset
+                    await writer.drain()
+                except Exception:
+                    pass
+                return
             except (EOFError, UnicodeDecodeError, ValueError, socket.gaierror) as e:
                 logger.warning(f"[-] SOCKS malformed connect from {source_ip}: {e}")
                 writer.close()
                 return
+
+            if self._is_blocked_ip(address):
+                logger.warning(
+                    f"[-] SOCKS blocked private/LAN/ZT destination "
+                    f"{address}:{port} for '{username}' from {source_ip}"
+                )
+                self.log_connection(username, source_ip, address, port, "SOCKS-BLOCKED")
+                try:
+                    writer.write(self._socks_failure_reply(2))
+                    await writer.drain()
+                except Exception:
+                    pass
+                return
+
             logger.info(f"[+] User '{username}' (SOCKS) connecting from {source_ip} to {address}:{port}")
             self.log_connection(username, source_ip, address, port, "SOCKS")
 
@@ -475,12 +583,6 @@ class ImprovedProxy:
 
     def _format_header_name(self, name):
         return '-'.join(part.capitalize() for part in name.split('-'))
-
-    async def _resolve_host(self, hostname):
-        infos = await asyncio.get_running_loop().getaddrinfo(
-            hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
-        )
-        return infos[0][4][0]
 
     async def _read_exact(self, reader, nbytes, label):
         data = await reader.read(nbytes)
@@ -637,6 +739,30 @@ class ImprovedProxy:
                     path += f'?{parsed_url.query}'
 
             protocol = "HTTP-CONNECT" if is_connect else "HTTP"
+            try:
+                address = await self._resolve_public_host(address)
+            except PermissionError as e:
+                logger.warning(
+                    f"[-] {protocol} blocked destination for '{username}' "
+                    f"from {source_ip}: {e}"
+                )
+                self.log_connection(username, source_ip, str(e), port, f"{protocol}-BLOCKED")
+                await self.send_http_response(writer, 403, "Forbidden")
+                continue
+            except socket.gaierror as e:
+                logger.warning(f"[-] {protocol} DNS failed for {address}: {e}")
+                await self.send_http_response(writer, 502, "Bad Gateway")
+                break
+
+            if self._is_blocked_ip(address):
+                logger.warning(
+                    f"[-] {protocol} blocked private/LAN/ZT destination "
+                    f"{address}:{port} for '{username}' from {source_ip}"
+                )
+                self.log_connection(username, source_ip, address, port, f"{protocol}-BLOCKED")
+                await self.send_http_response(writer, 403, "Forbidden")
+                continue
+
             logger.info(f"[+] User '{username}' ({protocol}) connecting from {source_ip} to {address}:{port}")
             self.log_connection(username, source_ip, address, port, protocol)
             if username not in self.user_usage:
