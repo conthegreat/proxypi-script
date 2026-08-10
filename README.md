@@ -121,12 +121,23 @@ Confirmed by SSH on your live Pis:
 - `proxy.env` is chmod 600 and only readable by the Pi user
 - ZeroTier network ID is public (required to join) — this is normal
 - Approve new devices manually in ZeroTier Central before activation
-- **Destination filter:** `proxyscript.py` refuses SOCKS/HTTP CONNECT to private LAN,
-  loopback, link-local, CGNAT, and ZeroTier-style `10.0.0.0/8` ranges so customers
-  cannot use the proxy to reach the host’s home network or other ZT nodes.
+- **Destination filter (default on `main`):** `proxyscript.py` always refuses SOCKS/HTTP
+  CONNECT to private LAN (RFC1918), loopback, link-local, CGNAT, and ZeroTier-style
+  `10.0.0.0/8` ranges so customers cannot reach the host’s home network or other ZT nodes.
+  New installs via `join.sh` and live updates pull this secure build from `main`.
   Optional extra CIDRs: `PROXY_BLOCKED_NETWORKS=cidr,cidr` in `proxy.env`.
 
-### Update proxy code on a live Pi (ops)
+### Update proxy code on a live Pi (ops) — secure build is default
+
+**Recommended** (backup + verify filter + restart; does **not** change ports in `proxy.env`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/conthegreat/proxypi-script/main/admin/update-secure-script.sh | bash
+# rollback last backup:
+curl -fsSL https://raw.githubusercontent.com/conthegreat/proxypi-script/main/admin/update-secure-script.sh | bash -s -- --rollback
+```
+
+Manual (same file — secure is already default on `main`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/conthegreat/proxypi-script/main/proxyscript.py \
@@ -136,6 +147,7 @@ sudo systemctl status improved_proxy.service --no-pager
 ```
 
 Pis do **not** auto-pull from GitHub; only this file is replaced + service restart.
+Ports always come from `~/proxy/proxy.env` (`SOCKS_PORT` / `HTTP_PORT`) and are unchanged by updates.
 
 ## Manual service control
 
