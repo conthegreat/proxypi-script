@@ -183,11 +183,12 @@ class ImprovedProxy:
         logger.info(f"[*] NAS-IP-Address set to {self.nas_ip_address}")
         logger.info(f"[*] Logs directory: {log_dir}")
         logger.info(f"[*] Debug log file: {os.path.join(log_dir, 'proxy.log')}")
-        self.usage_log = os.path.join(log_dir, f"user_usage_{hostname}.csv")
+        # Legacy local usage CSV retired — dashboard meters from RADIUS radacct.
+        self.usage_log = None
         self.connection_log = os.path.join(log_dir, f"connection_log_{hostname}.csv")
         self.user_usage = {}
         self._blocked_networks = self._load_blocked_networks()
-        self.load_existing_usage()
+        logger.info("[*] Local usage CSV disabled (RADIUS accounting is source of truth)")
         logger.info(
             f"[*] Destination filter: blocking private/LAN/ZT ranges "
             f"({len(self._blocked_networks)} networks)"
@@ -329,16 +330,8 @@ class ImprovedProxy:
             )
 
     def load_existing_usage(self):
-        try:
-            with open(self.usage_log, 'r') as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row in reader:
-                    username = row['Username']
-                    inbound = int(row['Inbound (bytes)'])
-                    outbound = int(row['Outbound (bytes)'])
-                    self.user_usage[username] = {"inbound": inbound, "outbound": outbound}
-        except FileNotFoundError:
-            logger.info("[*] No existing usage log found. Starting fresh.")
+        """No-op: local usage CSV path removed."""
+        return
 
     def _start_accounting_async(self, username, session_id, protocol, source_ip):
         threading.Thread(
@@ -404,15 +397,8 @@ class ImprovedProxy:
         self._stop_accounting_async(
             username, session_id, outbound_data, inbound_data, session_time, protocol, source_ip
         )
-        self.update_usage_log()
 
     async def start(self):
-        try:
-            with open(self.usage_log, 'x', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(['Username', 'Inbound (bytes)', 'Outbound (bytes)'])
-        except FileExistsError:
-            pass
         try:
             with open(self.connection_log, 'x', newline='') as csvfile:
                 writer = csv.writer(csvfile)
@@ -941,11 +927,8 @@ class ImprovedProxy:
         return data_transferred
 
     def update_usage_log(self):
-        with open(self.usage_log, 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(['Username', 'Inbound (bytes)', 'Outbound (bytes)'])
-            for username, usage in self.user_usage.items():
-                writer.writerow([username, usage["inbound"], usage["outbound"]])
+        """No-op: local usage CSV path removed; use RADIUS radacct."""
+        return
 
     def log_connection(self, username, source_ip, dst_ip, dst_port, protocol):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

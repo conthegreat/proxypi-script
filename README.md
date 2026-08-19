@@ -113,7 +113,7 @@ Confirmed by SSH on your live Pis:
 | `~/proxy/venv/` | Python virtual environment |
 | `~/proxy/proxy.env` | Ports and secrets (created at activation, mode 600) |
 | `~/proxy/node-info.env` | Hostname, ZT node ID, status |
-| `/var/log/proxy/` | Logs and CSV usage files |
+| `/var/log/proxy/` | Debug log (+ optional connection CSV). **Usage is not written locally** — dashboard meters from RADIUS `radacct`. |
 
 ## Security notes
 
