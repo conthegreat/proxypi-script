@@ -476,14 +476,21 @@ class ImprovedProxy:
                 if request[0] != SOCKS_VERSION:
                     raise ValueError(f"unsupported SOCKS version {request[0]}")
                 address_type = request[3]
+                # ATYP: 1=IPv4 (client local DNS), 3=domain (proxy DNS), 4=IPv6 (client local)
+                socks_dns = "client"
+                socks_dest = None
                 if address_type == 1:
                     address = socket.inet_ntoa(await self._read_exact(reader, 4, "ipv4 address"))
+                    socks_dest = address
                 elif address_type == 3:
                     domain_length = (await self._read_exact(reader, 1, "domain length"))[0]
                     domain = (await self._read_exact(reader, domain_length, "domain")).decode('utf-8', errors='strict')
+                    socks_dns = "proxy"
+                    socks_dest = domain
                     address = await self._resolve_public_host(domain)
                 elif address_type == 4:
                     address = socket.inet_ntop(socket.AF_INET6, await self._read_exact(reader, 16, "ipv6 address"))
+                    socks_dest = address
                 else:
                     logger.warning(f"[-] SOCKS unsupported address type {address_type} from {source_ip}")
                     writer.write(self._socks_failure_reply(8))
@@ -516,7 +523,11 @@ class ImprovedProxy:
                     pass
                 return
 
-            logger.info(f"[+] User '{username}' (SOCKS) connecting from {source_ip} to {address}:{port}")
+            # Enrich existing connect line only (no extra I/O): dns=proxy|client
+            logger.info(
+                f"[+] User '{username}' (SOCKS) connecting from {source_ip} to {address}:{port} "
+                f"dns={socks_dns} dest={socks_dest}"
+            )
             self.log_connection(username, source_ip, address, port, "SOCKS")
 
             if username not in self.user_usage:
