@@ -40,6 +40,8 @@ from pyrad.client import Client
 from pyrad.dictionary import Dictionary
 import base64
 import ipaddress
+import random
+import struct
 from urllib.parse import urlparse
 import os
 import uuid
@@ -82,6 +84,156 @@ _DEFAULT_BLOCKED_NETWORKS = (
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
+
+# ---------------------------------------------------------------------------
+# Option C — proxy-only DNS (AdGuard / custom resolvers)
+# ---------------------------------------------------------------------------
+# When PROXY_DNS_SERVERS is set (comma-separated IPs), hostname resolves for
+# SOCKS/HTTP go ONLY to those servers (e.g. London AdGuard 10.147.17.33 then
+# 1.1.1.1). The Pi OS /resolv.conf is NOT changed — apt/NTP/ZT stay on ISP DNS.
+#
+# REVERT to system DNS for proxy resolves:
+#   Remove or comment PROXY_DNS_SERVERS in ~/proxy/proxy.env and
+#   `sudo systemctl restart improved_proxy.service`
+# ---------------------------------------------------------------------------
+
+
+def _proxy_dns_servers():
+    raw = os.environ.get("PROXY_DNS_SERVERS", "").strip()
+    if not raw:
+        return []
+    out = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ipaddress.ip_address(part)
+            out.append(part)
+        except ValueError:
+            logging.getLogger("ImprovedProxy").warning(
+                "[-] Ignoring invalid PROXY_DNS_SERVERS entry: %s", part
+            )
+    return out
+
+
+def _proxy_dns_timeout():
+    try:
+        return float(os.environ.get("PROXY_DNS_TIMEOUT", "3") or "3")
+    except ValueError:
+        return 3.0
+
+
+def _encode_dns_name(hostname: str) -> bytes:
+    labels = hostname.rstrip(".").split(".")
+    parts = []
+    for label in labels:
+        raw = label.encode("idna")
+        if len(raw) > 63:
+            raise ValueError(f"DNS label too long: {label!r}")
+        parts.append(bytes([len(raw)]) + raw)
+    return b"".join(parts) + b"\x00"
+
+
+def _build_dns_query(hostname: str, qtype: int) -> tuple[bytes, int]:
+    txid = random.randint(0, 65535)
+    # RD=1 standard query
+    header = struct.pack("!HHHHHH", txid, 0x0100, 1, 0, 0, 0)
+    question = _encode_dns_name(hostname) + struct.pack("!HH", qtype, 1)  # IN
+    return header + question, txid
+
+
+def _skip_dns_name(payload: bytes, offset: int) -> int:
+    n = len(payload)
+    while offset < n:
+        length = payload[offset]
+        if length == 0:
+            return offset + 1
+        if length & 0xC0 == 0xC0:  # compression pointer
+            return offset + 2
+        offset += 1 + length
+    raise ValueError("truncated DNS name")
+
+
+def _parse_dns_answers(payload: bytes, txid: int, qtype: int) -> list[str]:
+    if len(payload) < 12:
+        raise ValueError("short DNS response")
+    r_txid, flags, qdcount, ancount, _, _ = struct.unpack("!HHHHHH", payload[:12])
+    if r_txid != txid:
+        raise ValueError("DNS txid mismatch")
+    if flags & 0x000F:  # RCODE
+        return []
+    offset = 12
+    for _ in range(qdcount):
+        offset = _skip_dns_name(payload, offset)
+        offset += 4  # qtype + qclass
+    addrs = []
+    for _ in range(ancount):
+        offset = _skip_dns_name(payload, offset)
+        if offset + 10 > len(payload):
+            break
+        rtype, rclass, _ttl, rdlen = struct.unpack("!HHIH", payload[offset : offset + 10])
+        offset += 10
+        rdata = payload[offset : offset + rdlen]
+        offset += rdlen
+        if rclass != 1:
+            continue
+        if rtype == 1 and rdlen == 4:  # A
+            addrs.append(socket.inet_ntop(socket.AF_INET, rdata))
+        elif rtype == 28 and rdlen == 16:  # AAAA
+            addrs.append(socket.inet_ntop(socket.AF_INET6, rdata))
+        elif rtype == qtype and rtype in (1, 28):
+            pass
+    return addrs
+
+
+async def _dns_query_udp(hostname: str, qtype: int, server: str, timeout: float) -> list[str]:
+    query, txid = _build_dns_query(hostname, qtype)
+    loop = asyncio.get_running_loop()
+
+    class _Proto(asyncio.DatagramProtocol):
+        def __init__(self):
+            self.future = loop.create_future()
+
+        def datagram_received(self, data, addr):
+            if not self.future.done():
+                self.future.set_result(data)
+
+        def error_received(self, exc):
+            if not self.future.done():
+                self.future.set_exception(exc)
+
+    transport = None
+    try:
+        transport, protocol = await loop.create_datagram_endpoint(
+            _Proto, remote_addr=(server, 53)
+        )
+        transport.sendto(query)
+        data = await asyncio.wait_for(protocol.future, timeout=timeout)
+        return _parse_dns_answers(data, txid, qtype)
+    finally:
+        if transport is not None:
+            transport.close()
+
+
+async def resolve_host_via_proxy_dns(hostname: str, servers: list[str], timeout: float) -> list[str]:
+    """Resolve A then AAAA via explicit DNS servers (no system resolv.conf)."""
+    errors = []
+    for server in servers:
+        addrs = []
+        for qtype in (1, 28):  # A, AAAA
+            try:
+                addrs.extend(await _dns_query_udp(hostname, qtype, server, timeout))
+            except Exception as e:
+                errors.append(f"{server}/q{qtype}:{e}")
+        if addrs:
+            # Prefer IPv4 first (typical for proxy upstreams)
+            v4 = [a for a in addrs if ":" not in a]
+            v6 = [a for a in addrs if ":" in a]
+            return v4 + v6
+    raise OSError(
+        f"proxy DNS failed for {hostname} via {servers}; last_errors={errors[:4]}"
+    )
 
 
 def setup_logger():
@@ -188,11 +340,24 @@ class ImprovedProxy:
         self.connection_log = os.path.join(log_dir, f"connection_log_{hostname}.csv")
         self.user_usage = {}
         self._blocked_networks = self._load_blocked_networks()
+        # Option C: explicit DNS for proxy hostname resolves only (see PROXY_DNS_SERVERS).
+        self._proxy_dns_servers = _proxy_dns_servers()
+        self._proxy_dns_timeout = _proxy_dns_timeout()
         logger.info("[*] Local usage CSV disabled (RADIUS accounting is source of truth)")
         logger.info(
             f"[*] Destination filter: blocking private/LAN/ZT ranges "
             f"({len(self._blocked_networks)} networks)"
         )
+        if self._proxy_dns_servers:
+            logger.info(
+                f"[*] Proxy-only DNS (Option C): {', '.join(self._proxy_dns_servers)} "
+                f"(timeout={self._proxy_dns_timeout}s) — Pi OS resolv.conf unchanged"
+            )
+        else:
+            logger.info(
+                "[*] Proxy DNS: system getaddrinfo "
+                "(set PROXY_DNS_SERVERS=10.147.17.33,1.1.1.1 for AdGuard-only resolves)"
+            )
 
     def _load_blocked_networks(self):
         nets = []
@@ -234,7 +399,11 @@ class ImprovedProxy:
         return False
 
     async def _resolve_public_host(self, hostname: str) -> str:
-        """Resolve hostname and return first non-blocked address, or raise PermissionError."""
+        """Resolve hostname and return first non-blocked address, or raise PermissionError.
+
+        If PROXY_DNS_SERVERS is set, use those resolvers only (Option C — AdGuard on
+        London ZT + fallback). Otherwise use system getaddrinfo (legacy / easy revert).
+        """
         try:
             ipaddress.ip_address(hostname)
             if self._is_blocked_ip(hostname):
@@ -243,11 +412,22 @@ class ImprovedProxy:
         except ValueError:
             pass
 
-        infos = await asyncio.get_running_loop().getaddrinfo(
-            hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
-        )
-        for info in infos:
-            candidate = info[4][0]
+        candidates = []
+        if self._proxy_dns_servers:
+            try:
+                candidates = await resolve_host_via_proxy_dns(
+                    hostname, self._proxy_dns_servers, self._proxy_dns_timeout
+                )
+            except OSError as e:
+                logger.warning(f"[-] Proxy DNS resolve failed for {hostname}: {e}")
+                raise socket.gaierror(socket.EAI_NONAME, str(e)) from e
+        else:
+            infos = await asyncio.get_running_loop().getaddrinfo(
+                hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
+            )
+            candidates = [info[4][0] for info in infos]
+
+        for candidate in candidates:
             if not self._is_blocked_ip(candidate):
                 return candidate
         raise PermissionError(f"all resolved addresses blocked for {hostname}")

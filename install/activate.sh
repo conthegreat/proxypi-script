@@ -129,6 +129,12 @@ port_in_use() {
 port_in_use "${SOCKS_PORT}" && die "SOCKS port ${SOCKS_PORT} is already in use on this host"
 port_in_use "${HTTP_PORT}" && die "HTTP port ${HTTP_PORT} is already in use on this host"
 
+# Option C — proxy-only DNS (AdGuard on London ZT). Does NOT change Pi OS resolv.conf.
+# Hostname resolves from proxyscript go to these servers only; apt/NTP/ZT use system DNS.
+# REVERT: remove PROXY_DNS_SERVERS line below, then: sudo systemctl restart improved_proxy
+PROXY_DNS_SERVERS="${PROXY_DNS_SERVERS:-10.147.17.33,1.1.1.1}"
+PROXY_DNS_TIMEOUT="${PROXY_DNS_TIMEOUT:-3}"
+
 umask 077
 cat >"${PROXY_ENV}" <<EOF
 SOCKS_PORT=${SOCKS_PORT}
@@ -136,9 +142,14 @@ HTTP_PORT=${HTTP_PORT}
 RADIUS_SERVER=${RADIUS_SERVER}
 RADIUS_SECRET=${RADIUS_SECRET}
 PROXY_LOG_DIR=${PROXY_LOG_DIR}
+# Option C: proxy-only DNS → AdGuard (10.147.17.33) then Cloudflare. Not system-wide.
+# REVERT: comment out the next two lines and restart improved_proxy.service
+PROXY_DNS_SERVERS=${PROXY_DNS_SERVERS}
+PROXY_DNS_TIMEOUT=${PROXY_DNS_TIMEOUT}
 EOF
 chmod 600 "${PROXY_ENV}"
 ok "Wrote ${PROXY_ENV} (mode 600)"
+info "Proxy-only DNS: ${PROXY_DNS_SERVERS} (Pi OS DNS unchanged — Option C)"
 
 if [[ -f "${NODE_INFO}" ]]; then
   sed -i 's/^STATUS=.*/STATUS=active/' "${NODE_INFO}" 2>/dev/null || true

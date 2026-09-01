@@ -127,6 +127,17 @@ Confirmed by SSH on your live Pis:
   New installs via `join.sh` and live updates pull this secure build from `main`.
   Optional extra CIDRs: `PROXY_BLOCKED_NETWORKS=cidr,cidr` in `proxy.env`.
 
+- **Proxy-only DNS — Option C (default on new activate):** `PROXY_DNS_SERVERS` in
+  `proxy.env` (default `10.147.17.33,1.1.1.1`) makes **proxyscript** resolve customer
+  hostnames via London AdGuard (ZT) then Cloudflare. This does **not** change the Pi’s
+  `/etc/resolv.conf` — apt, NTP, ZeroTier, and other OS traffic stay on ISP/system DNS
+  (cleaner AdGuard logs + less compliance noise than system-wide DNS).
+  - **REVERT proxy DNS:** comment out `PROXY_DNS_SERVERS` / `PROXY_DNS_TIMEOUT` in
+    `~/proxy/proxy.env`, then `sudo systemctl restart improved_proxy.service` (falls
+    back to system `getaddrinfo`).
+  - **Do not** point the whole Pi at AdGuard in join/onboard (that was only a pilot on
+    pi-1/pi-2). Prefer Option C via `proxy.env` for new hosts.
+
 ### Update proxy code on a live Pi (ops) — secure build is default
 
 **Recommended** (backup + verify filter + restart; does **not** change ports in `proxy.env`):
