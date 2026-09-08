@@ -14,10 +14,12 @@
 #          HEARTBEAT_TOKEN='...' bash
 set -euo pipefail
 
-INSTALL_DIR="${PROXYPI_INSTALL_DIR:-${HOME}/proxy}"
-PROXY_ENV="${INSTALL_DIR}/proxy.env"
 REPO_RAW="${PROXYPI_REPO_RAW:-https://raw.githubusercontent.com/conthegreat/proxypi-script/main}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null || true)"
+# When piped via curl|bash, BASH_SOURCE may be unset under `set -u`
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null || true)"
+fi
 
 die() { echo "[-] $*" >&2; exit 1; }
 info() { echo "[*] $*"; }

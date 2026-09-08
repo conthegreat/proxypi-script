@@ -24,7 +24,8 @@ if [[ -f "${NODE_INFO}" ]]; then
   ZT_NODE_ID="${ZT_NODE_ID:-${ZEROTIER_NODE_ID:-}}"
   ZT_IP="${ZT_IP:-}"
 fi
-if [[ -z "${ZT_IP}" ]]; then
+# node-info often has ZT_IP=pending before approval — treat as empty
+if [[ -z "${ZT_IP}" || "${ZT_IP}" == "pending" ]]; then
   ZT_IP="$(ip -4 addr show 2>/dev/null | awk '/inet 10\.147\./ {print $2}' | cut -d/ -f1 | head -1 || true)"
 fi
 
