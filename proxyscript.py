@@ -338,12 +338,22 @@ class ImprovedProxy:
         # Legacy local usage CSV retired — dashboard meters from RADIUS radacct.
         self.usage_log = None
         self.connection_log = os.path.join(log_dir, f"connection_log_{hostname}.csv")
+        # Keep connection CSV capped (~5MB active + 1 backup ≈ 10MB total).
+        self._connection_log_max_bytes = int(
+            os.environ.get("PROXY_CONN_LOG_MAX_BYTES", str(5 * 1024 * 1024))
+        )
+        self._connection_log_backups = int(os.environ.get("PROXY_CONN_LOG_BACKUPS", "1"))
+        self._connection_log_lock = threading.Lock()
         self.user_usage = {}
         self._blocked_networks = self._load_blocked_networks()
         # Option C: explicit DNS for proxy hostname resolves only (see PROXY_DNS_SERVERS).
         self._proxy_dns_servers = _proxy_dns_servers()
         self._proxy_dns_timeout = _proxy_dns_timeout()
         logger.info("[*] Local usage CSV disabled (RADIUS accounting is source of truth)")
+        logger.info(
+            f"[*] Connection CSV rotate at {self._connection_log_max_bytes} bytes "
+            f"(backups={self._connection_log_backups})"
+        )
         logger.info(
             f"[*] Destination filter: blocking private/LAN/ZT ranges "
             f"({len(self._blocked_networks)} networks)"
@@ -579,12 +589,9 @@ class ImprovedProxy:
         )
 
     async def start(self):
-        try:
-            with open(self.connection_log, 'x', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(['Timestamp', 'Username', 'Source IP', 'Destination IP', 'Destination Port', 'Protocol'])
-        except FileExistsError:
-            pass
+        with self._connection_log_lock:
+            self._rotate_connection_log_if_needed()
+            self._ensure_connection_log_header()
 
         try:
             socks_server = await asyncio.start_server(
@@ -1121,11 +1128,48 @@ class ImprovedProxy:
         """No-op: local usage CSV path removed; use RADIUS radacct."""
         return
 
+    def _ensure_connection_log_header(self):
+        if os.path.exists(self.connection_log) and os.path.getsize(self.connection_log) > 0:
+            return
+        with open(self.connection_log, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(
+                ["Timestamp", "Username", "Source IP", "Destination IP", "Destination Port", "Protocol"]
+            )
+
+    def _rotate_connection_log_if_needed(self):
+        """Rotate connection CSV when over max size (keeps last ~5–10MB)."""
+        try:
+            if not os.path.exists(self.connection_log):
+                self._ensure_connection_log_header()
+                return
+            if os.path.getsize(self.connection_log) < self._connection_log_max_bytes:
+                return
+            # Drop oldest backup, shift others, move active -> .1
+            oldest = f"{self.connection_log}.{self._connection_log_backups}"
+            if os.path.exists(oldest):
+                os.remove(oldest)
+            for i in range(self._connection_log_backups - 1, 0, -1):
+                src = f"{self.connection_log}.{i}"
+                dst = f"{self.connection_log}.{i + 1}"
+                if os.path.exists(src):
+                    os.replace(src, dst)
+            os.replace(self.connection_log, f"{self.connection_log}.1")
+            self._ensure_connection_log_header()
+            logger.info(
+                f"[*] Rotated connection CSV (max {self._connection_log_max_bytes} bytes, "
+                f"backups={self._connection_log_backups})"
+            )
+        except OSError as e:
+            logger.warning(f"[-] Connection CSV rotate failed: {e}")
+
     def log_connection(self, username, source_ip, dst_ip, dst_port, protocol):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(self.connection_log, 'a', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow([timestamp, username, source_ip, dst_ip, dst_port, protocol])
+        with self._connection_log_lock:
+            self._rotate_connection_log_if_needed()
+            with open(self.connection_log, "a", newline="", encoding="utf-8") as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow([timestamp, username, source_ip, dst_ip, dst_port, protocol])
 
 if __name__ == "__main__":
     if sys.platform == 'win32':
