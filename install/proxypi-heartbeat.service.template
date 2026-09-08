@@ -1,0 +1,15 @@
+[Unit]
+Description=ProxyPi resource heartbeat (one-shot)
+After=network-online.target zerotier-one.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__RUN_USER__
+Group=__RUN_USER__
+EnvironmentFile=-__HOME__/proxy/proxy.env
+ExecStart=/bin/bash __HOME__/proxy/pi_heartbeat.sh
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

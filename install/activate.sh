@@ -103,7 +103,11 @@ if data.get("radius_server"):
     print(f"RADIUS_SERVER={sh_escape(data['radius_server'])}")
 if data.get("hostname"):
     print(f"REDEEM_HOSTNAME={sh_escape(data['hostname'])}")
-print("export SOCKS_PORT HTTP_PORT RADIUS_SECRET RADIUS_SERVER")
+if data.get("heartbeat_url"):
+    print(f"HEARTBEAT_URL={sh_escape(data['heartbeat_url'])}")
+if data.get("heartbeat_token"):
+    print(f"HEARTBEAT_TOKEN={sh_escape(data['heartbeat_token'])}")
+print("export SOCKS_PORT HTTP_PORT RADIUS_SECRET RADIUS_SERVER HEARTBEAT_URL HEARTBEAT_TOKEN")
 PY
   )" || die "Invalid activation API response"
   ok "Token redeemed — ports and RADIUS credentials received (secret not shown)"
@@ -147,6 +151,12 @@ PROXY_LOG_DIR=${PROXY_LOG_DIR}
 PROXY_DNS_SERVERS=${PROXY_DNS_SERVERS}
 PROXY_DNS_TIMEOUT=${PROXY_DNS_TIMEOUT}
 EOF
+if [[ -n "${HEARTBEAT_URL:-}" && -n "${HEARTBEAT_TOKEN:-}" ]]; then
+  {
+    echo "HEARTBEAT_URL=${HEARTBEAT_URL}"
+    echo "HEARTBEAT_TOKEN=${HEARTBEAT_TOKEN}"
+  } >>"${PROXY_ENV}"
+fi
 chmod 600 "${PROXY_ENV}"
 ok "Wrote ${PROXY_ENV} (mode 600)"
 info "Proxy-only DNS: ${PROXY_DNS_SERVERS} (Pi OS DNS unchanged — Option C)"
@@ -173,4 +183,19 @@ if sudo systemctl is-active --quiet "${SERVICE_NAME}"; then
   sudo systemctl status "${SERVICE_NAME}" --no-pager -n 5
 else
   die "Service failed to start. Check: journalctl -u ${SERVICE_NAME} -n 50"
+fi
+
+# Resource heartbeat → London (helps diagnose offline / OOM / thermal)
+if [[ -n "${HEARTBEAT_TOKEN:-}" ]]; then
+  info "Installing ProxyPi resource heartbeat"
+  HB_URL="${HEARTBEAT_URL:-http://10.147.17.33:5001/pi/heartbeat}"
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null || true)"
+  if [[ -n "${SCRIPT_DIR}" && -f "${SCRIPT_DIR}/install-heartbeat.sh" ]]; then
+    HEARTBEAT_URL="${HB_URL}" HEARTBEAT_TOKEN="${HEARTBEAT_TOKEN}" \
+      bash "${SCRIPT_DIR}/install-heartbeat.sh" || info "Heartbeat install deferred (non-fatal)"
+  else
+    curl -fsSL "https://raw.githubusercontent.com/conthegreat/proxypi-script/main/install/install-heartbeat.sh" \
+      | HEARTBEAT_URL="${HB_URL}" HEARTBEAT_TOKEN="${HEARTBEAT_TOKEN}" bash \
+      || info "Heartbeat install deferred (non-fatal)"
+  fi
 fi

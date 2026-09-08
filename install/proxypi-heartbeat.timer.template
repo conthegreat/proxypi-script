@@ -1,0 +1,12 @@
+[Unit]
+Description=Run ProxyPi resource heartbeat every 2 minutes
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec=120
+AccuracySec=30
+Persistent=true
+Unit=proxypi-heartbeat.service
+
+[Install]
+WantedBy=timers.target
