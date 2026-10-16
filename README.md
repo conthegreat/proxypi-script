@@ -1,6 +1,6 @@
 # ProxyPi Join Script
 
-One-command installer for joining the Network Contractor proxy network on a Raspberry Pi.
+One-command installer for joining the Network Contractor proxy network on a Raspberry Pi or a 24/7 Windows 10/11 PC.
 
 ## For new Pi operators
 
@@ -24,6 +24,31 @@ After the network operator approves your device in ZeroTier Central and assigns 
 curl -fsSL https://raw.githubusercontent.com/conthegreat/proxypi-script/main/install/activate.sh | \
   SOCKS_PORT=18100 HTTP_PORT=58100 RADIUS_SECRET='your-secret' bash
 ```
+
+## For Windows 10/11 operators (always-on PC)
+
+Run **PowerShell as Administrator**:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force
+irm https://raw.githubusercontent.com/conthegreat/proxypi-script/main/install/windows/join.ps1 | iex
+```
+
+Or right-click `install/windows/join.cmd` → **Run as administrator**.
+
+This installs official ZeroTier, Python 3.12, a venv with `pyrad`, `proxyscript.py` under `C:\ProgramData\ProxyPi`, and prints the ZeroTier Node ID. The proxy does not start until activation.
+
+Activation (token from ProxyPi, still as Administrator):
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force
+$env:ACTIVATION_TOKEN='...'; $env:ACTIVATION_API_URL='https://proxypi.co.uk'
+irm https://raw.githubusercontent.com/conthegreat/proxypi-script/main/install/windows/activate.ps1 | iex
+```
+
+That writes `proxy.env`, opens the firewall ports, and installs a Windows service (`ProxyPi`) that restarts on crash and starts at boot (depends on ZeroTier). Full notes: [install/windows/WINDOWS.md](install/windows/WINDOWS.md).
+
+The PC must stay plugged in and must not sleep. The installer turns sleep off on mains power.
 
 ### Leave the network (operator self-service)
 
