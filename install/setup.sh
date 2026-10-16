@@ -41,25 +41,91 @@ load_config() {
     || die "ZEROTIER_NETWORK_ID is not configured in ${CONFIG_FILE}. Ask the network operator."
 }
 
+apt_distro_suite() {
+  # Linux Mint VERSION_CODENAME is zena/wilma/zara — ZeroTier has no such suite.
+  # UBUNTU_CODENAME is the real Debian/Ubuntu repo (noble, jammy, bookworm, …).
+  (
+    # shellcheck disable=SC1091
+    [[ -f /etc/os-release ]] && . /etc/os-release
+    if [[ -n "${UBUNTU_CODENAME:-}" ]]; then
+      echo "$UBUNTU_CODENAME"
+    else
+      echo "${VERSION_CODENAME:-bookworm}"
+    fi
+  )
+}
+
+remove_broken_zerotier_apt() {
+  local list=/etc/apt/sources.list.d/zerotier.list
+  [[ -f "$list" ]] || return 0
+  local err
+  err="$(sudo apt-get update -qq 2>&1)" && return 0
+  if echo "$err" | grep -q 'zerotier.list'; then
+    warn "Removing broken ZeroTier apt source (common on Linux Mint)"
+    sudo rm -f "$list"
+    return 0
+  fi
+  echo "$err" >&2
+  die "apt-get update failed"
+}
+
+install_zerotier_apt() {
+  local suite keyring list
+  suite="$(apt_distro_suite)"
+  [[ -n "$suite" ]] || die "Could not detect Debian/Ubuntu suite for ZeroTier."
+  keyring=/usr/share/keyrings/zerotier-debian-package-key.gpg
+  list=/etc/apt/sources.list.d/zerotier.list
+  log "Installing ZeroTier from download.zerotier.com/debian/${suite}"
+  sudo mkdir -p /usr/share/keyrings
+  if [[ ! -s "$keyring" ]]; then
+    curl -fsSL "https://raw.githubusercontent.com/zerotier/ZeroTierOne/master/doc/contact@zerotier.com.gpg" \
+      | sudo gpg --dearmor | sudo tee "$keyring" >/dev/null
+  fi
+  echo "deb [signed-by=${keyring}] http://download.zerotier.com/debian/${suite} ${suite} main" \
+    | sudo tee "$list" >/dev/null
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq zerotier-one
+  sudo systemctl enable --now zerotier-one
+}
+
 install_apt_packages() {
   if ! command -v apt-get >/dev/null 2>&1; then
     warn "apt-get not found; ensure python3, python3-venv, curl, and git are installed."
     return
   fi
+  remove_broken_zerotier_apt
   log "Installing system packages"
   sudo apt-get update -qq
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    python3 python3-venv python3-pip curl ca-certificates iproute2
+    python3 python3-venv python3-pip curl ca-certificates iproute2 gnupg
 }
 
 install_zerotier() {
   if command -v zerotier-cli >/dev/null 2>&1; then
     log "ZeroTier already installed"
+    sudo systemctl enable --now zerotier-one 2>/dev/null || true
     return
   fi
-  log "Installing ZeroTier"
-  curl -fsSL https://install.zerotier.com | sudo bash
-  sudo systemctl enable --now zerotier-one
+  local id=""
+  id="$(
+    # shellcheck disable=SC1091
+    [[ -f /etc/os-release ]] && . /etc/os-release
+    echo "${ID:-}"
+  )"
+  if [[ "$id" == "linuxmint" ]]; then
+    # install.zerotier.com writes an empty suite on Mint (zena/wilma) and breaks apt.
+    install_zerotier_apt
+  else
+    log "Installing ZeroTier"
+    if ! curl -fsSL https://install.zerotier.com | sudo bash; then
+      warn "ZeroTier official installer failed; using Debian/Ubuntu apt repo"
+      sudo rm -f /etc/apt/sources.list.d/zerotier.list
+      install_zerotier_apt
+    fi
+    sudo systemctl enable --now zerotier-one 2>/dev/null || true
+  fi
+  command -v zerotier-cli >/dev/null 2>&1 \
+    || die "ZeroTier did not install. Email support@proxypi.co.uk"
 }
 
 join_zerotier() {
